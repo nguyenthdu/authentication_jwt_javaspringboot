@@ -18,10 +18,11 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
-@EnableMethodSecurity// Cho phep spring tim va tu dong ap dung cho class gobal
-// (securedEnabled = true,
-// jsr250Enabled = true,
-// prePostEnabled = true) // by default
+//@EnableWebSecurity
+@EnableMethodSecurity
+//(securedEnabled = true,
+//jsr250Enabled = true,
+//prePostEnabled = true) // by default
 public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
 	@Autowired
 	UserDetailsServiceImpl userDetailsService;

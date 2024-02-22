@@ -1,18 +1,24 @@
 package com.example.TestAuthentication.controller;
 
+import com.example.TestAuthentication.exception.TokenRefreshException;
 import com.example.TestAuthentication.models.ERole;
+import com.example.TestAuthentication.models.RefreshToken;
 import com.example.TestAuthentication.models.Role;
 import com.example.TestAuthentication.models.User;
 import com.example.TestAuthentication.payload.request.LoginRequest;
 import com.example.TestAuthentication.payload.request.SignupRequest;
-import com.example.TestAuthentication.payload.response.JwtResponse;
 import com.example.TestAuthentication.payload.response.MessageResponse;
+import com.example.TestAuthentication.payload.response.UserInfoResponse;
 import com.example.TestAuthentication.repository.RoleRepository;
 import com.example.TestAuthentication.repository.UserRepository;
 import com.example.TestAuthentication.security.jwt.JwtUtils;
+import com.example.TestAuthentication.security.service.RefreshTokenService;
 import com.example.TestAuthentication.security.service.UserDetailsImpl;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -26,6 +32,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+//for Angular Client (withCredentials)
+//@CrossOrigin(origins = "http://localhost:8081", maxAge = 3600, allowCredentials="true")
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
 @RequestMapping("/api/auth")
@@ -40,15 +48,19 @@ public class AuthController {
 	PasswordEncoder encoder;
 	@Autowired
 	JwtUtils jwtUtils;
+	@Autowired
+	RefreshTokenService refreshTokenService;
 	
 	@PostMapping("/signin")
 	public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
 		Authentication authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
 		SecurityContextHolder.getContext().setAuthentication(authentication);
-		String jwt = jwtUtils.generateJwtToken(authentication);
 		UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+		ResponseCookie jwtCookie = jwtUtils.generateJwtCookie(userDetails);
 		List<String> roles = userDetails.getAuthorities().stream().map(item -> item.getAuthority()).collect(Collectors.toList());
-		return ResponseEntity.ok(new JwtResponse(jwt, userDetails.getId(), userDetails.getUsername(), userDetails.getEmail(), roles));
+		RefreshToken refreshToken = refreshTokenService.createRefreshToken(userDetails.getId());
+		ResponseCookie jwtRefreshCookie = jwtUtils.generateRefreshJwtCookie(refreshToken.getToken());
+		return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, jwtCookie.toString()).header(HttpHeaders.SET_COOKIE, jwtRefreshCookie.toString()).body(new UserInfoResponse(userDetails.getId(), userDetails.getUsername(), userDetails.getEmail(), roles));
 	}
 	
 	@PostMapping("/signup")
@@ -87,13 +99,28 @@ public class AuthController {
 		userRepository.save(user);
 		return ResponseEntity.ok(new MessageResponse("User registered successfully!"));
 	}
-	//	@PostMapping("/logout")
-	//	public ResponseEntity<?> logoutUser(HttpServletRequest request) {
-	//		String authHeader = request.getHeader("Authorization");
-	//		if(authHeader != null && authHeader.startsWith("Bearer ")) {
-	//			String jwtToken = authHeader.substring(7); // Lấy token từ header
-	//			jwtUtils.deleteToken(jwtToken); // Xóa token
-	//		}
-	//		return ResponseEntity.ok("User logged out!");
-	//	}
+	
+	@PostMapping("/signout")
+	public ResponseEntity<?> logoutUser() {
+		Object principle = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+		if(principle.toString() != "anonymousUser") {
+			Long userId = ((UserDetailsImpl) principle).getId();
+			refreshTokenService.deleteByUserId(userId);
+		}
+		ResponseCookie jwtCookie = jwtUtils.getCleanJwtCookie();
+		ResponseCookie jwtRefreshCookie = jwtUtils.getCleanJwtRefreshCookie();
+		return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, jwtCookie.toString()).header(HttpHeaders.SET_COOKIE, jwtRefreshCookie.toString()).body(new MessageResponse("You've been signed out!"));
+	}
+	
+	@PostMapping("/refreshtoken")
+	public ResponseEntity<?> refreshtoken(HttpServletRequest request) {
+		String refreshToken = jwtUtils.getJwtRefreshFromCookies(request);
+		if((refreshToken != null) && (refreshToken.length() > 0)) {
+			return refreshTokenService.findByToken(refreshToken).map(refreshTokenService::verifyExpiration).map(RefreshToken::getUser).map(user -> {
+				ResponseCookie jwtCookie = jwtUtils.generateJwtCookie(user);
+				return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, jwtCookie.toString()).body(new MessageResponse("Token is refreshed successfully!"));
+			}).orElseThrow(() -> new TokenRefreshException(refreshToken, "Refresh token is not in database!"));
+		}
+		return ResponseEntity.badRequest().body(new MessageResponse("Refresh Token is empty!"));
+	}
 }

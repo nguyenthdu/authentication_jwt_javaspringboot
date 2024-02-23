@@ -53,7 +53,7 @@ public class AuthController {
 	
 	@PostMapping("/signin")
 	public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
-		Authentication authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
+		Authentication authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(loginRequest.getEmail(), loginRequest.getPassword()));
 		SecurityContextHolder.getContext().setAuthentication(authentication);
 		UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
 		ResponseCookie jwtCookie = jwtUtils.generateJwtCookie(userDetails);
@@ -72,8 +72,8 @@ public class AuthController {
 			return ResponseEntity.badRequest().body(new MessageResponse("Error: Email is already in use!"));
 		}
 		// Create new user's account
-		User user = new User(signUpRequest.getUsername(), signUpRequest.getEmail(), encoder.encode(signUpRequest.getPassword()));
-		Set<String> strRoles = signUpRequest.getRole();
+		User user = new User(signUpRequest.getCode(), signUpRequest.getUsername(), signUpRequest.getEmail(), signUpRequest.isGender(), signUpRequest.getBirthday(), signUpRequest.getPhone(), encoder.encode(signUpRequest.getPassword()));
+		Set<String> strRoles = signUpRequest.getRoles();
 		Set<Role> roles = new HashSet<>();
 		if(strRoles == null) {
 			Role userRole = roleRepository.findByName(ERole.ROLE_USER).orElseThrow(() -> new RuntimeException("Error: Role is not found."));
